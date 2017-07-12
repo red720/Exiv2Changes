@@ -145,11 +145,27 @@ bool isArray(std::string& value)
     if  (node.IsObject()) node.AsObject().Add(key,value);\
     else                  node.AsArray() .Add(    value)
 
+
+
 template <class T>
 void push(Jzon::Node& node,const std::string& key,T i)
 {
     std::string value = i->value().toString();
 
+    //if(key == "GPSLatitude" || key == "GPSLatitude"){
+    ////if( ::isArray(value)){
+    //    Jzon::Array arrOuter;
+    //    for(int i = 0; i < 3; ++i){
+    //        Jzon::Array arrInner;
+    //        Exiv2::Rational rat = i->value()[i].toRational();
+    //        arrInner.Add(rat.first );
+    //        arrInner.Add(rat.second);
+    //        arrOuter.Add(arrInner);
+    //    }
+    //    STORE(node,key,arrOuter);
+    //    
+    //}
+    
     switch ( i->typeId() ) {
         case Exiv2::xmpText:
              if (        ::isObject(value) ) {
@@ -168,8 +184,18 @@ void push(Jzon::Node& node,const std::string& key,T i)
         case Exiv2::unsignedLong:
         case Exiv2::signedByte:
         case Exiv2::signedShort:
-        case Exiv2::signedLong:
-             STORE(node,key,std::atoi(value.c_str()) );
+        case Exiv2::signedLong:{
+            Jzon::Array     arr;
+            if(i->value().count() > 1){  
+                for(long j = 0; j < i->value().count(); ++j){
+                    arr.Add(std::atoi(i->value().toString(j).c_str()));
+                }
+                
+                STORE(node,key,arr);
+            }else{
+                STORE(node,key,std::atoi(value.c_str()) );
+            }
+        }
         break;
 
         case Exiv2::tiffFloat:
@@ -180,9 +206,19 @@ void push(Jzon::Node& node,const std::string& key,T i)
         case Exiv2::unsignedRational:
         case Exiv2::signedRational: {
              Jzon::Array     arr;
-             Exiv2::Rational rat = i->value().toRational();
-             arr.Add(rat.first );
-             arr.Add(rat.second);
+             if(i->value().count() > 1){
+                for(long j = 0; j < i->value().count(); ++j){
+                    Jzon::Array arrInner;
+                    Exiv2::Rational rat = i->value().toRational(j);
+                    arrInner.Add(rat.first );
+                    arrInner.Add(rat.second);
+                    arr.Add(arrInner);
+                }
+             }else{
+                 Exiv2::Rational rat = i->value().toRational();
+                 arr.Add(rat.first );
+                 arr.Add(rat.second);
+             }
              STORE(node,key,arr);
         } break;
 
@@ -225,6 +261,7 @@ void push(Jzon::Node& node,const std::string& key,T i)
     }
 }
 
+
 void fileSystemPush(const char* path,Jzon::Node& nfs)
 {
     Jzon::Object& fs = (Jzon::Object&) nfs;
@@ -261,12 +298,13 @@ void fileSystemPush(const char* path,Jzon::Node& nfs)
 
 int main(int argc, char* const argv[])
 try {
-    if (argc < 2 || argc > 3) {
-        std::cout << "Usage: " << argv[0] << " [-option] file"       << std::endl;
+    if (argc < 3 || argc > 4) {
+        std::cout << "Usage: " << argv[0] << " -option file [outputfile]"       << std::endl;
         std::cout << "Option: all | exif | iptc | xmp | filesystem"  << std::endl;
         return 1;
     }
-    const char* path   = argv[argc-1];
+
+    const char* path   = argv[2];
     const char* opt    = argc == 3 ? argv[1] : "-all" ;
     while      (opt[0] == '-') opt++ ; // skip past leading -'s
     char        option = opt[0];
@@ -287,7 +325,7 @@ try {
     if ( option == 'a' || option == 'e' ) {
         Exiv2::ExifData &exifData = image->exifData();
         for ( Exiv2::ExifData::const_iterator i = exifData.begin(); i != exifData.end() ; ++i ) {
-            std::string name   ;
+            std::string name;
             Jzon::Node& object = objectForKey(i->key(),root,name);
             push(object,name,i);
         }
@@ -296,7 +334,7 @@ try {
     if ( option == 'a' || option == 'i' ) {
         Exiv2::IptcData &iptcData = image->iptcData();
         for (Exiv2::IptcData::const_iterator i = iptcData.begin(); i != iptcData.end(); ++i) {
-            std::string name   ;
+            std::string name;
             Jzon::Node& object = objectForKey(i->key(),root,name);
             push(object,name,i);
         }
@@ -310,7 +348,7 @@ try {
             // get the xmpData and recursively parse into a Jzon Object
             Exiv2::StringSet     namespaces;
             for (Exiv2::XmpData::const_iterator i = xmpData.begin(); i != xmpData.end(); ++i) {
-                std::string name   ;
+                std::string name;
                 Jzon::Node& object = objectForKey(i->key(),root,name,&namespaces);
                 push(object,name,i);
             }
@@ -333,15 +371,22 @@ try {
     }
 #endif
 
-    Jzon::Writer writer(root,Jzon::StandardFormat);
-    writer.Write();
-    std::cout << writer.GetResult() << std::endl;
+    if(argc == 4){
+        const char* output   = argv[3];
+        Jzon::FileWriter writer(output);
+        writer.WriteFile(output, root, Jzon::StandardFormat);
+        
+    }else{
+        Jzon::Writer writer(root,Jzon::StandardFormat);
+        writer.Write();
+        std::cout << writer.GetResult() << std::endl;
+    }
     return 0;
 }
 
 //catch (std::exception& e) {
 //catch (Exiv2::AnyError& e) {
 catch (Exiv2::Error& e) {
-    std::cout << "Caught Exiv2 exception '" << e.what() << "'\n";
+    std::cout << "Caught Exiv2 exception  '" << e.what() << "'\n";
     return -1;
 }
